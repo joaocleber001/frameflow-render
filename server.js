@@ -57,7 +57,8 @@ app.post("/processar-video", upload.single("video"), async (req, res) => {
 
     // Borda ao redor do vídeo
     if (t.border_width > 0) {
-      filters.push(`[${last}]drawbox=x=${vx - t.border_width}:y=${vy - t.border_width}:w=${vw + t.border_width * 2}:h=${vh + t.border_width * 2}:color=${t.border_color || "#7C3AED"}:t=${t.border_width}[bord]`);
+      const bwid = Math.round(t.border_width);
+      filters.push(`[${last}]drawbox=x=${Math.max(0, vx - bwid)}:y=${Math.max(0, vy - bwid)}:w=${vw + bwid * 2}:h=${vh + bwid * 2}:color=${t.border_color || "#7C3AED"}:t=${bwid}[bord]`);
       last = "bord";
     }
 
@@ -105,21 +106,29 @@ app.post("/processar-video", upload.single("video"), async (req, res) => {
       "-y", ...inputs,
       "-filter_complex", filters.join(";"),
       "-map", `[${last}]`, "-map", "0:a?",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-      "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+      "-threads", "1", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
       "-c:a", "aac", "-b:a", "128k", "-shortest",
       out,
     ];
 
+    console.log("FFMPEG ARGS:", args.join(" "));
+
     const ff = spawn("ffmpeg", args);
     let log = "";
-    ff.stderr.on("data", d => { log += d.toString(); if (log.length > 8000) log = log.slice(-8000); });
+    ff.stderr.on("data", d => { log += d.toString(); if (log.length > 20000) log = log.slice(-20000); });
 
-    ff.on("close", (code) => {
+    ff.on("close", (code, signal) => {
       if (code !== 0 || !fs.existsSync(out)) {
+        console.error("FFMPEG FALHOU code=", code, "signal=", signal);
         console.error(log);
         cleanup();
-        return res.status(500).json({ error: "FFmpeg falhou", log: log.slice(-1500) });
+        return res.status(500).json({
+          error: "FFmpeg falhou",
+          code,
+          signal,
+          log: log.slice(-4000),
+        });
       }
       res.setHeader("Content-Type", "video/mp4");
       const stream = fs.createReadStream(out);
